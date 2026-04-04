@@ -14,7 +14,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
-
 st.set_page_config(page_title="Regression Prediction App", layout="wide")
 st.title("Regression Prediction App")
 st.write(
@@ -22,10 +21,23 @@ st.write(
     "It trains regression models, evaluates performance, and allows interactive prediction."
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-SALES_PATH = os.path.join(DATA_DIR, "sales_data.csv")
-CAR_PATH = os.path.join(DATA_DIR, "car_purchasing.csv")
+# ----------------------------
+# PATH HANDLING
+# ----------------------------
+def get_data_path(filename):
+    possible_paths = [
+        os.path.join("data", filename),
+        os.path.join(os.getcwd(), "data", filename),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", filename),
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+SALES_PATH = get_data_path("sales_data.csv")
+CAR_PATH = get_data_path("car_purchasing.csv")
 
 
 @st.cache_data
@@ -102,14 +114,14 @@ if dataset_option == "Upload Your Own":
 # ----------------------------
 try:
     if dataset_option == "Sales Dataset":
-        if not os.path.exists(SALES_PATH):
-            st.error(f"Built-in file not found: {SALES_PATH}")
+        if SALES_PATH is None:
+            st.error("sales_data.csv not found in the data folder.")
             st.stop()
         df = load_csv_from_path(SALES_PATH)
 
     elif dataset_option == "Car Purchasing Dataset":
-        if not os.path.exists(CAR_PATH):
-            st.error(f"Built-in file not found: {CAR_PATH}")
+        if CAR_PATH is None:
+            st.error("car_purchasing.csv not found in the data folder.")
             st.stop()
         df = load_csv_from_path(CAR_PATH)
 
