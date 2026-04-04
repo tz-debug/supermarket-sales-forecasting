@@ -16,3 +16,12 @@ A Streamlit machine learning application for predicting sales from advertising s
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
+
+##Repository Structure
+.
+├── app.py
+├── requirements.txt
+├── README.md
+└── data/
+    ├── sales_data.csv
+    └── car_purchasing.csv
