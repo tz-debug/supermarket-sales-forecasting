@@ -1,3 +1,5 @@
+import os
+import json
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,13 +14,76 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
-st.set_page_config(page_title="Sales Prediction App", layout="wide")
-st.title("Sales Prediction App")
 
+st.set_page_config(page_title="Regression Prediction App", layout="wide")
+st.title("Regression Prediction App")
 st.write(
-    "This application predicts target values using regression models. "
-    "You can use a built-in dataset from the repository or upload your own CSV file."
+    "This application supports built-in datasets from the repository or a user-uploaded CSV. "
+    "It trains regression models, evaluates performance, and allows interactive prediction."
 )
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+SALES_PATH = os.path.join(DATA_DIR, "sales_data.csv")
+CAR_PATH = os.path.join(DATA_DIR, "car_purchasing.csv")
+
+
+@st.cache_data
+def load_csv_from_path(path: str) -> pd.DataFrame:
+    return pd.read_csv(path)
+
+
+@st.cache_data
+def load_csv_from_upload(file) -> pd.DataFrame:
+    return pd.read_csv(file)
+
+
+def guess_column(columns, keywords):
+    for keyword in keywords:
+        for col in columns:
+            if keyword in col.lower():
+                return col
+    return None
+
+
+def build_model(model_name: str):
+    if model_name == "Linear Regression":
+        return LinearRegression()
+    return RandomForestRegressor(
+        n_estimators=300,
+        random_state=42,
+        max_depth=8,
+        min_samples_split=4
+    )
+
+
+def evaluate_model(y_true, y_pred):
+    r2 = r2_score(y_true, y_pred)
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    return r2, mae, rmse
+
+
+def get_default_config(dataset_name: str, df: pd.DataFrame):
+    columns = df.columns.tolist()
+
+    if dataset_name == "Sales Dataset":
+        target = guess_column(columns, ["sales"])
+        features = [c for c in columns if c.lower() in ["tv", "radio", "newspaper"]]
+
+    elif dataset_name == "Car Purchasing Dataset":
+        target = guess_column(columns, ["car purchase amount", "purchase amount"])
+        features = [
+            c for c in columns
+            if c.lower() in ["age", "annual salary", "credit card debt", "net worth"]
+        ]
+
+    else:
+        target = guess_column(columns, ["sales", "target", "amount", "price"])
+        features = [c for c in columns if c != target]
+
+    return target, features
+
 
 # ----------------------------
 # DATASET SELECTION
@@ -32,75 +97,27 @@ uploaded_file = None
 if dataset_option == "Upload Your Own":
     uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
-
-@st.cache_data
-def load_data_from_path(path: str) -> pd.DataFrame:
-    return pd.read_csv(path)
-
-
-@st.cache_data
-def load_data_from_upload(file) -> pd.DataFrame:
-    return pd.read_csv(file)
-
-
-def build_model(model_name: str):
-    if model_name == "Linear Regression":
-        return LinearRegression()
-    return RandomForestRegressor(
-        n_estimators=200,
-        random_state=42,
-        max_depth=6
-    )
-
-
-def evaluate_model(y_true, y_pred):
-    r2 = r2_score(y_true, y_pred)
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    return r2, mae, rmse
-
-
-def guess_column(columns, keywords):
-    for keyword in keywords:
-        for col in columns:
-            if keyword in col.lower():
-                return col
-    return None
-
-
 # ----------------------------
 # LOAD DATA
 # ----------------------------
 try:
     if dataset_option == "Sales Dataset":
-        df = load_data_from_path("data/sales_data.csv")
-        default_target = guess_column(df.columns, ["sales"])
-        default_features = [
-            c for c in df.columns
-            if c.lower() in ["tv", "radio", "newspaper"]
-        ]
+        if not os.path.exists(SALES_PATH):
+            st.error(f"Built-in file not found: {SALES_PATH}")
+            st.stop()
+        df = load_csv_from_path(SALES_PATH)
 
     elif dataset_option == "Car Purchasing Dataset":
-        df = load_data_from_path("data/car_purchasing.csv")
-        default_target = guess_column(df.columns, ["car purchase amount", "purchase amount"])
-        default_features = [
-            c for c in df.columns
-            if c.lower() in [
-                "age",
-                "annual salary",
-                "credit card debt",
-                "net worth"
-            ]
-        ]
+        if not os.path.exists(CAR_PATH):
+            st.error(f"Built-in file not found: {CAR_PATH}")
+            st.stop()
+        df = load_csv_from_path(CAR_PATH)
 
     else:
         if uploaded_file is None:
             st.info("Upload a CSV file to begin.")
             st.stop()
-
-        df = load_data_from_upload(uploaded_file)
-        default_target = guess_column(df.columns, ["sales", "target", "amount", "price"])
-        default_features = [c for c in df.columns if c != default_target]
+        df = load_csv_from_upload(uploaded_file)
 
 except Exception as e:
     st.error(f"Could not load dataset: {e}")
@@ -110,11 +127,17 @@ if df.empty:
     st.error("The dataset is empty.")
     st.stop()
 
+default_target, default_features = get_default_config(dataset_option, df)
+
 # ----------------------------
 # PREVIEW
 # ----------------------------
 st.subheader("Dataset Preview")
 st.dataframe(df.head(), use_container_width=True)
+
+with st.expander("Dataset information"):
+    st.write("Shape:", df.shape)
+    st.write("Columns:", list(df.columns))
 
 columns = df.columns.tolist()
 
@@ -137,10 +160,11 @@ with col1:
 
 with col2:
     default_features = [c for c in default_features if c in columns and c != target_col]
+    candidate_features = [c for c in columns if c != target_col]
     feature_cols = st.multiselect(
         "Feature columns",
-        [c for c in columns if c != target_col],
-        default=default_features
+        candidate_features,
+        default=default_features if default_features else candidate_features[: min(3, len(candidate_features))]
     )
 
 if not feature_cols:
@@ -150,31 +174,39 @@ if not feature_cols:
 # ----------------------------
 # MODEL SETTINGS
 # ----------------------------
+st.sidebar.header("Model Settings")
 model_name = st.sidebar.selectbox(
     "Select Model",
     ["Linear Regression", "Random Forest Regressor"]
 )
-
 test_size = st.sidebar.slider("Test Size", 0.1, 0.4, 0.2, 0.05)
+random_state = st.sidebar.number_input("Random State", min_value=0, max_value=9999, value=42)
 
 # ----------------------------
-# DATA CLEANING
+# DATA PREP
 # ----------------------------
 X = df[feature_cols].copy()
 y = pd.to_numeric(df[target_col], errors="coerce")
 
+invalid_cols = []
 for col in feature_cols:
     X[col] = pd.to_numeric(X[col], errors="coerce")
+    if X[col].notna().sum() == 0:
+        invalid_cols.append(col)
+
+if invalid_cols:
+    st.error(f"These selected features could not be converted to numeric values: {invalid_cols}")
+    st.stop()
 
 valid_mask = y.notna()
 for col in feature_cols:
     valid_mask &= X[col].notna()
 
-X = X[valid_mask]
-y = y[valid_mask]
+X = X[valid_mask].copy()
+y = y[valid_mask].copy()
 
 if len(X) < 10:
-    st.error("Not enough valid rows after cleaning. Please use a larger dataset.")
+    st.error("Not enough valid rows after cleaning. Please use a larger dataset or different columns.")
     st.stop()
 
 # ----------------------------
@@ -205,11 +237,14 @@ pipeline = Pipeline(
 )
 
 # ----------------------------
-# TRAIN MODEL
+# TRAIN
 # ----------------------------
 if st.button("Train Model"):
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42
+        X,
+        y,
+        test_size=test_size,
+        random_state=random_state
     )
 
     pipeline.fit(X_train, y_train)
@@ -217,13 +252,21 @@ if st.button("Train Model"):
 
     r2, mae, rmse = evaluate_model(y_test, y_pred)
 
+    results_df = pd.DataFrame({
+        "Actual": y_test.values,
+        "Predicted": y_pred
+    })
+
     st.session_state["pipeline"] = pipeline
     st.session_state["feature_cols"] = feature_cols
+    st.session_state["target_col"] = target_col
+    st.session_state["metrics"] = {"R2": r2, "MAE": mae, "RMSE": rmse}
     st.session_state["X_test"] = X_test
     st.session_state["y_test"] = y_test
     st.session_state["y_pred"] = y_pred
-    st.session_state["metrics"] = {"R2": r2, "MAE": mae, "RMSE": rmse}
+    st.session_state["results_df"] = results_df
     st.session_state["model_name"] = model_name
+    st.session_state["reference_X"] = X
 
 # ----------------------------
 # RESULTS
@@ -236,20 +279,34 @@ if "pipeline" in st.session_state:
     m2.metric("MAE", f"{st.session_state['metrics']['MAE']:.3f}")
     m3.metric("RMSE", f"{st.session_state['metrics']['RMSE']:.3f}")
 
+    st.download_button(
+        "Download Metrics JSON",
+        data=json.dumps(st.session_state["metrics"], indent=2),
+        file_name="metrics.json",
+        mime="application/json"
+    )
+
     st.subheader("Actual vs Predicted")
-    results_df = pd.DataFrame({
-        "Actual": st.session_state["y_test"].values,
-        "Predicted": st.session_state["y_pred"]
-    })
-    st.dataframe(results_df.head(20), use_container_width=True)
+    st.dataframe(st.session_state["results_df"].head(25), use_container_width=True)
+
+    csv_results = st.session_state["results_df"].to_csv(index=False)
+    st.download_button(
+        "Download Predictions CSV",
+        data=csv_results,
+        file_name="predictions.csv",
+        mime="text/csv"
+    )
 
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.scatter(st.session_state["y_test"], st.session_state["y_pred"])
+    ax.scatter(st.session_state["y_test"], st.session_state["y_pred"], alpha=0.7)
     ax.set_xlabel("Actual")
     ax.set_ylabel("Predicted")
     ax.set_title("Actual vs Predicted")
     st.pyplot(fig)
 
+    # ----------------------------
+    # MODEL INTERPRETATION
+    # ----------------------------
     st.subheader("Model Interpretation")
     trained_model = st.session_state["pipeline"].named_steps["model"]
     used_features = st.session_state["feature_cols"]
@@ -285,13 +342,15 @@ if "pipeline" in st.session_state:
     # ----------------------------
     st.subheader("Manual Prediction")
     input_data = {}
+    reference_X = st.session_state["reference_X"]
 
     cols_ui = st.columns(len(used_features))
     for i, feature in enumerate(used_features):
-        default_val = float(X[feature].median())
+        default_val = float(reference_X[feature].median())
         input_data[feature] = cols_ui[i].number_input(
             feature,
-            value=default_val
+            value=default_val,
+            format="%.4f"
         )
 
     if st.button("Predict"):
