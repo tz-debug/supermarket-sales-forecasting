@@ -1,163 +1,69 @@
-import warnings
-warnings.filterwarnings("ignore")
-
 import streamlit as st
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 
-from statsmodels.tsa.arima.model import ARIMA
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
-try:
-    from prophet import Prophet
-    PROPHET_AVAILABLE = True
-except Exception:
-    PROPHET_AVAILABLE = False
-
-
-st.set_page_config(page_title="Supermarket Sales Forecasting", layout="wide")
-st.title("Supermarket Sales Forecasting")
+st.set_page_config(page_title="Advertising Sales Prediction", layout="wide")
+st.title("Advertising Sales Prediction")
 
 st.write(
-    "Upload a sales dataset, optionally filter by store or product, "
-    "and forecast daily sales using ARIMA and Prophet."
+    "Upload an advertising dataset and predict sales from TV, Radio, and Newspaper spend."
 )
+
+uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
 
 @st.cache_data
-def load_csv(uploaded_file):
-    return pd.read_csv(uploaded_file)
+def load_data(file):
+    return pd.read_csv(file)
 
 
-def guess_column(columns, candidates):
-    lower_map = {c.lower(): c for c in columns}
-    for cand in candidates:
+def guess_column(columns, keywords):
+    for keyword in keywords:
         for col in columns:
-            if cand in col.lower():
+            if keyword in col.lower():
                 return col
     return None
 
 
-@st.cache_data
-def prepare_data(df, date_col, sales_col, store_col=None, store_val=None, product_col=None, product_val=None):
-    df = df.copy()
-
-    if store_col and store_val and store_val != "All":
-        df = df[df[store_col].astype(str) == str(store_val)]
-
-    if product_col and product_val and product_val != "All":
-        df = df[df[product_col].astype(str) == str(product_val)]
-
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-    df[sales_col] = pd.to_numeric(df[sales_col], errors="coerce")
-
-    df = df.dropna(subset=[date_col, sales_col])
-
-    if df.empty:
-        raise ValueError("No valid rows remain after filtering and cleaning.")
-
-    daily = (
-        df.groupby(df[date_col].dt.date)[sales_col]
-        .sum()
-        .reset_index()
-    )
-    daily.columns = ["Date", "Sales"]
-
-    daily["Date"] = pd.to_datetime(daily["Date"])
-    daily = daily.sort_values("Date")
-    daily = daily.set_index("Date").asfreq("D")
-
-    daily["Sales"] = daily["Sales"].interpolate(method="linear")
-    daily["Sales"] = daily["Sales"].bfill().ffill()
-
-    return daily
-
-
-def plot_historical(ts_df):
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(ts_df.index, ts_df["Sales"], label="Historical Sales")
-    ax.set_title("Daily Sales")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Sales")
-    ax.legend()
-    st.pyplot(fig)
-
-
-def run_arima(ts_df, forecast_days, order):
-    model = ARIMA(ts_df["Sales"], order=order)
-    fitted = model.fit()
-    forecast = fitted.forecast(steps=forecast_days)
-
-    future_index = pd.date_range(
-        start=ts_df.index[-1] + pd.Timedelta(days=1),
-        periods=forecast_days,
-        freq="D"
+def build_model(model_name):
+    if model_name == "Linear Regression":
+        return LinearRegression()
+    return RandomForestRegressor(
+        n_estimators=200,
+        random_state=42,
+        max_depth=6
     )
 
-    return pd.DataFrame({
-        "Date": future_index,
-        "Forecast": forecast.values
-    })
 
+def evaluate_model(y_true, y_pred):
+    r2 = r2_score(y_true, y_pred)
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    return r2, mae, rmse
 
-def plot_arima(ts_df, forecast_df):
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(ts_df.index, ts_df["Sales"], label="Historical Sales")
-    ax.plot(forecast_df["Date"], forecast_df["Forecast"], label="ARIMA Forecast")
-    ax.set_title("ARIMA Forecast")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Sales")
-    ax.legend()
-    st.pyplot(fig)
-
-
-def run_prophet(ts_df, forecast_days):
-    prophet_df = ts_df.reset_index().rename(columns={"Date": "ds", "Sales": "y"})
-
-    model = Prophet(
-        daily_seasonality=True,
-        weekly_seasonality=True,
-        yearly_seasonality=True
-    )
-    model.fit(prophet_df)
-
-    future = model.make_future_dataframe(periods=forecast_days)
-    forecast = model.predict(future)
-    result = forecast[["ds", "yhat", "yhat_lower", "yhat_upper"]].tail(forecast_days)
-
-    return model, forecast, result
-
-
-def plot_prophet(ts_df, forecast_result):
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(ts_df.index, ts_df["Sales"], label="Historical Sales")
-    ax.plot(forecast_result["ds"], forecast_result["yhat"], label="Prophet Forecast")
-    ax.fill_between(
-        forecast_result["ds"],
-        forecast_result["yhat_lower"],
-        forecast_result["yhat_upper"],
-        alpha=0.2
-    )
-    ax.set_title("Prophet Forecast")
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Sales")
-    ax.legend()
-    st.pyplot(fig)
-
-
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
 if uploaded_file is None:
-    st.info("Upload a CSV file to begin.")
+    st.info("Upload your sales CSV file to begin.")
     st.stop()
 
 try:
-    df = load_csv(uploaded_file)
+    df = load_data(uploaded_file)
 except Exception as e:
     st.error(f"Could not read CSV: {e}")
     st.stop()
 
 if df.empty:
-    st.error("Uploaded file is empty.")
+    st.error("The uploaded CSV is empty.")
     st.stop()
 
 st.subheader("Dataset Preview")
@@ -165,123 +71,166 @@ st.dataframe(df.head(), use_container_width=True)
 
 columns = df.columns.tolist()
 
-# Auto-detect likely columns
-default_date = guess_column(columns, ["date", "order date", "transaction date"])
-default_sales = guess_column(columns, ["sales", "revenue", "amount", "total"])
-default_store = guess_column(columns, ["store", "location", "branch", "outlet"])
-default_product = guess_column(columns, ["product", "category", "item", "type"])
+default_target = guess_column(columns, ["sales"])
+default_tv = guess_column(columns, ["tv"])
+default_radio = guess_column(columns, ["radio"])
+default_news = guess_column(columns, ["newspaper"])
+
+st.subheader("Column Selection")
 
 col1, col2 = st.columns(2)
 with col1:
-    date_col = st.selectbox(
-        "Select date column",
+    target_col = st.selectbox(
+        "Target column",
         columns,
-        index=columns.index(default_date) if default_date in columns else 0
+        index=columns.index(default_target) if default_target in columns else len(columns) - 1
     )
 with col2:
-    sales_col = st.selectbox(
-        "Select sales column",
+    feature_cols = st.multiselect(
+        "Feature columns",
         columns,
-        index=columns.index(default_sales) if default_sales in columns else min(1, len(columns)-1)
+        default=[c for c in [default_tv, default_radio, default_news] if c in columns]
     )
 
-col3, col4 = st.columns(2)
+if not feature_cols:
+    st.warning("Please select at least one feature column.")
+    st.stop()
 
-with col3:
-    store_options = ["None"] + columns
-    store_col = st.selectbox(
-        "Optional store/location column",
-        store_options,
-        index=store_options.index(default_store) if default_store in store_options else 0
+model_name = st.sidebar.selectbox(
+    "Select Model",
+    ["Linear Regression", "Random Forest Regressor"]
+)
+
+test_size = st.sidebar.slider("Test Size", 0.1, 0.4, 0.2, 0.05)
+
+X = df[feature_cols].copy()
+y = pd.to_numeric(df[target_col], errors="coerce")
+
+for col in feature_cols:
+    X[col] = pd.to_numeric(X[col], errors="coerce")
+
+valid_mask = y.notna()
+for col in feature_cols:
+    valid_mask &= X[col].notna()
+
+X = X[valid_mask]
+y = y[valid_mask]
+
+if len(X) < 10:
+    st.error("Not enough valid rows after cleaning. Please use a larger dataset.")
+    st.stop()
+
+numeric_features = feature_cols
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        (
+            "num",
+            Pipeline(
+                steps=[
+                    ("imputer", SimpleImputer(strategy="median")),
+                    ("scaler", StandardScaler())
+                ]
+            ),
+            numeric_features
+        )
+    ]
+)
+
+model = build_model(model_name)
+
+pipeline = Pipeline(
+    steps=[
+        ("preprocessor", preprocessor),
+        ("model", model)
+    ]
+)
+
+if st.button("Train Model"):
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=42
     )
 
-with col4:
-    product_options = ["None"] + columns
-    product_col = st.selectbox(
-        "Optional product/category column",
-        product_options,
-        index=product_options.index(default_product) if default_product in product_options else 0
-    )
+    pipeline.fit(X_train, y_train)
+    y_pred = pipeline.predict(X_test)
 
-store_val = None
-product_val = None
+    r2, mae, rmse = evaluate_model(y_test, y_pred)
 
-if store_col != "None":
-    store_values = ["All"] + sorted(df[store_col].dropna().astype(str).unique().tolist())
-    store_val = st.selectbox("Filter by store/location", store_values)
+    st.session_state["pipeline"] = pipeline
+    st.session_state["feature_cols"] = feature_cols
+    st.session_state["X_test"] = X_test
+    st.session_state["y_test"] = y_test
+    st.session_state["y_pred"] = y_pred
+    st.session_state["metrics"] = {"R2": r2, "MAE": mae, "RMSE": rmse}
+    st.session_state["model_name"] = model_name
 
-if product_col != "None":
-    product_values = ["All"] + sorted(df[product_col].dropna().astype(str).unique().tolist())
-    product_val = st.selectbox("Filter by product/category", product_values)
+if "pipeline" in st.session_state:
+    st.subheader("Model Performance")
 
-forecast_days = st.slider("Forecast horizon (days)", 7, 60, 14)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("R² Score", f"{st.session_state['metrics']['R2']:.3f}")
+    m2.metric("MAE", f"{st.session_state['metrics']['MAE']:.3f}")
+    m3.metric("RMSE", f"{st.session_state['metrics']['RMSE']:.3f}")
 
-st.sidebar.header("ARIMA Settings")
-p = st.sidebar.number_input("p", min_value=0, max_value=10, value=5)
-d = st.sidebar.number_input("d", min_value=0, max_value=2, value=1)
-q = st.sidebar.number_input("q", min_value=0, max_value=10, value=2)
+    # Actual vs Predicted
+    st.subheader("Actual vs Predicted")
+    results_df = pd.DataFrame({
+        "Actual": st.session_state["y_test"].values,
+        "Predicted": st.session_state["y_pred"]
+    })
+    st.dataframe(results_df.head(20), use_container_width=True)
 
-if st.button("Run Forecasting"):
-    try:
-        ts_df = prepare_data(
-            df,
-            date_col=date_col,
-            sales_col=sales_col,
-            store_col=None if store_col == "None" else store_col,
-            store_val=store_val,
-            product_col=None if product_col == "None" else product_col,
-            product_val=product_val
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.scatter(st.session_state["y_test"], st.session_state["y_pred"])
+    ax.set_xlabel("Actual Sales")
+    ax.set_ylabel("Predicted Sales")
+    ax.set_title("Actual vs Predicted Sales")
+    st.pyplot(fig)
+
+    # Feature importance or coefficients
+    st.subheader("Model Interpretation")
+    trained_model = st.session_state["pipeline"].named_steps["model"]
+    used_features = st.session_state["feature_cols"]
+
+    if hasattr(trained_model, "feature_importances_"):
+        imp_df = pd.DataFrame({
+            "Feature": used_features,
+            "Importance": trained_model.feature_importances_
+        }).sort_values("Importance", ascending=False)
+
+        st.dataframe(imp_df, use_container_width=True)
+
+        fig2, ax2 = plt.subplots(figsize=(8, 4))
+        ax2.bar(imp_df["Feature"], imp_df["Importance"])
+        ax2.set_title("Feature Importance")
+        st.pyplot(fig2)
+
+    elif hasattr(trained_model, "coef_"):
+        coef_df = pd.DataFrame({
+            "Feature": used_features,
+            "Coefficient": trained_model.coef_
+        }).sort_values("Coefficient", ascending=False)
+
+        st.dataframe(coef_df, use_container_width=True)
+
+        fig3, ax3 = plt.subplots(figsize=(8, 4))
+        ax3.bar(coef_df["Feature"], coef_df["Coefficient"])
+        ax3.set_title("Feature Coefficients")
+        st.pyplot(fig3)
+
+    # Manual prediction
+    st.subheader("Manual Sales Prediction")
+    input_data = {}
+
+    cols = st.columns(len(used_features))
+    for i, feature in enumerate(used_features):
+        default_val = float(X[feature].median())
+        input_data[feature] = cols[i].number_input(
+            f"{feature}",
+            value=default_val
         )
 
-        if len(ts_df) < 20:
-            st.error("Please provide at least 20 daily points after filtering.")
-            st.stop()
-
-        st.subheader("Prepared Daily Sales Data")
-        st.dataframe(ts_df.head(10), use_container_width=True)
-
-        plot_historical(ts_df)
-
-        tab1, tab2 = st.tabs(["ARIMA", "Prophet"])
-
-        with tab1:
-            st.subheader("ARIMA Forecast")
-            try:
-                arima_forecast = run_arima(ts_df, forecast_days, order=(p, d, q))
-                st.dataframe(arima_forecast, use_container_width=True)
-                plot_arima(ts_df, arima_forecast)
-
-                st.download_button(
-                    "Download ARIMA Forecast CSV",
-                    data=arima_forecast.to_csv(index=False),
-                    file_name="arima_forecast.csv",
-                    mime="text/csv"
-                )
-            except Exception as e:
-                st.error(f"ARIMA forecasting failed: {e}")
-
-        with tab2:
-            st.subheader("Prophet Forecast")
-            if not PROPHET_AVAILABLE:
-                st.warning("Prophet is not installed in this environment.")
-            else:
-                try:
-                    prophet_model, prophet_full_forecast, prophet_result = run_prophet(ts_df, forecast_days)
-                    st.dataframe(prophet_result, use_container_width=True)
-                    plot_prophet(ts_df, prophet_result)
-
-                    st.write("Prophet Components")
-                    fig_components = prophet_model.plot_components(prophet_full_forecast)
-                    st.pyplot(fig_components)
-
-                    st.download_button(
-                        "Download Prophet Forecast CSV",
-                        data=prophet_result.to_csv(index=False),
-                        file_name="prophet_forecast.csv",
-                        mime="text/csv"
-                    )
-                except Exception as e:
-                    st.error(f"Prophet forecasting failed: {e}")
-
-    except Exception as e:
-        st.error(f"Data preparation failed: {e}")
+    if st.button("Predict Sales"):
+        input_df = pd.DataFrame([input_data])
+        pred = st.session_state["pipeline"].predict(input_df)[0]
+        st.success(f"Predicted Sales: {pred:.2f}")
