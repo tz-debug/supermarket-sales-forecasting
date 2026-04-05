@@ -28,7 +28,30 @@ st.write(
 # -------------------------------------------------
 @st.cache_data
 def load_csv_from_upload(file) -> pd.DataFrame:
-    return pd.read_csv(file)
+    encodings_to_try = ["utf-8", "utf-8-sig", "latin1", "cp1252"]
+
+    last_error = None
+    for enc in encodings_to_try:
+        try:
+            file.seek(0)
+            return pd.read_csv(file, encoding=enc)
+        except Exception as e:
+            last_error = e
+
+    raise last_error
+
+
+def read_csv_flexible(path: str) -> pd.DataFrame:
+    encodings_to_try = ["utf-8", "utf-8-sig", "latin1", "cp1252"]
+
+    last_error = None
+    for enc in encodings_to_try:
+        try:
+            return pd.read_csv(path, encoding=enc)
+        except Exception as e:
+            last_error = e
+
+    raise last_error
 
 
 def load_dataset_safe(possible_filenames):
@@ -44,11 +67,18 @@ def load_dataset_safe(possible_filenames):
             os.path.join(os.getcwd(), "data", filename),
         ])
 
+    checked_paths = []
     for path in possible_paths:
+        checked_paths.append(path)
         if os.path.exists(path):
-            return pd.read_csv(path), path
+            try:
+                return read_csv_flexible(path), path, checked_paths
+            except Exception as e:
+                st.error(f"Found file but could not read it: {path}")
+                st.exception(e)
+                return None, path, checked_paths
 
-    return None, None
+    return None, None, checked_paths
 
 
 def guess_column(columns, keywords):
@@ -125,9 +155,10 @@ show_debug = st.sidebar.checkbox("Show file debug info", value=False)
 uploaded_file = None
 df = None
 loaded_path = None
+checked_paths = []
 
 if dataset_option == "Sales Dataset":
-    df, loaded_path = load_dataset_safe([
+    df, loaded_path, checked_paths = load_dataset_safe([
         "sales_data.csv",
         "sales data file.csv"
     ])
@@ -139,7 +170,7 @@ if dataset_option == "Sales Dataset":
             loaded_path = "uploaded manually"
 
 elif dataset_option == "Car Purchasing Dataset":
-    df, loaded_path = load_dataset_safe([
+    df, loaded_path, checked_paths = load_dataset_safe([
         "car_purchasing.csv"
     ])
     if df is None:
@@ -160,12 +191,15 @@ if show_debug:
     try:
         st.write("Current working directory:", os.getcwd())
         st.write("Visible files in current directory:", os.listdir())
+
         data_dir = os.path.join(os.getcwd(), "data")
         if os.path.exists(data_dir):
             st.write("Visible files in /data:", os.listdir(data_dir))
         else:
             st.write("/data folder not found")
+
         st.write("Resolved dataset path:", loaded_path)
+        st.write("Checked paths:", checked_paths)
     except Exception as e:
         st.write("Debug listing failed:", e)
 
@@ -190,6 +224,7 @@ with tab1:
     st.subheader("Dataset Preview")
     if loaded_path:
         st.caption(f"Loaded from: {loaded_path}")
+
     st.dataframe(df.head(), use_container_width=True)
 
     with st.expander("Dataset information"):
@@ -314,6 +349,7 @@ with tab2:
         st.session_state["y_pred"] = y_pred
         st.session_state["results_df"] = results_df
         st.session_state["reference_X"] = X
+
         st.success("Model trained successfully.")
 
 
@@ -373,6 +409,9 @@ with tab3:
             fig2, ax2 = plt.subplots(figsize=(8, 4))
             ax2.bar(imp_df["Feature"], imp_df["Importance"])
             ax2.set_title("Feature Importance")
+            ax2.set_xlabel("Feature")
+            ax2.set_ylabel("Importance")
+            plt.xticks(rotation=45)
             st.pyplot(fig2)
 
         elif hasattr(trained_model, "coef_"):
@@ -386,6 +425,9 @@ with tab3:
             fig3, ax3 = plt.subplots(figsize=(8, 4))
             ax3.bar(coef_df["Feature"], coef_df["Coefficient"])
             ax3.set_title("Feature Coefficients")
+            ax3.set_xlabel("Feature")
+            ax3.set_ylabel("Coefficient")
+            plt.xticks(rotation=45)
             st.pyplot(fig3)
 
 
