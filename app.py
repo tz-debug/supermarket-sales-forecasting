@@ -27,27 +27,28 @@ st.write(
 # SAFE DATA LOADING
 # -------------------------------------------------
 @st.cache_data
-def load_csv_from_path(path: str) -> pd.DataFrame:
-    return pd.read_csv(path)
-
-
-@st.cache_data
 def load_csv_from_upload(file) -> pd.DataFrame:
     return pd.read_csv(file)
 
 
-def load_dataset_safe(filename: str):
-    possible_paths = [
-        filename,
-        os.path.join(".", filename),
-        os.path.join(os.getcwd(), filename),
-    ]
+def load_dataset_safe(possible_filenames):
+    possible_paths = []
+
+    for filename in possible_filenames:
+        possible_paths.extend([
+            filename,
+            os.path.join(".", filename),
+            os.path.join("data", filename),
+            os.path.join(".", "data", filename),
+            os.path.join(os.getcwd(), filename),
+            os.path.join(os.getcwd(), "data", filename),
+        ])
 
     for path in possible_paths:
         if os.path.exists(path):
-            return pd.read_csv(path)
+            return pd.read_csv(path), path
 
-    return None
+    return None, None
 
 
 def guess_column(columns, keywords):
@@ -123,33 +124,48 @@ show_debug = st.sidebar.checkbox("Show file debug info", value=False)
 # -------------------------------------------------
 uploaded_file = None
 df = None
+loaded_path = None
 
 if dataset_option == "Sales Dataset":
-    df = load_dataset_safe("sales_data.csv")
+    df, loaded_path = load_dataset_safe([
+        "sales_data.csv",
+        "sales data file.csv"
+    ])
     if df is None:
-        st.warning("Built-in sales_data.csv was not found. Upload it manually below.")
-        uploaded_file = st.file_uploader("Upload sales_data.csv", type=["csv"], key="sales_upload")
+        st.warning("Built-in sales dataset was not found. Upload it manually below.")
+        uploaded_file = st.file_uploader("Upload sales CSV", type=["csv"], key="sales_upload")
         if uploaded_file is not None:
             df = load_csv_from_upload(uploaded_file)
+            loaded_path = "uploaded manually"
 
 elif dataset_option == "Car Purchasing Dataset":
-    df = load_dataset_safe("car_purchasing.csv")
+    df, loaded_path = load_dataset_safe([
+        "car_purchasing.csv"
+    ])
     if df is None:
         st.warning("Built-in car_purchasing.csv was not found. Upload it manually below.")
         uploaded_file = st.file_uploader("Upload car_purchasing.csv", type=["csv"], key="car_upload")
         if uploaded_file is not None:
             df = load_csv_from_upload(uploaded_file)
+            loaded_path = "uploaded manually"
 
 else:
     uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"], key="custom_upload")
     if uploaded_file is not None:
         df = load_csv_from_upload(uploaded_file)
+        loaded_path = "uploaded manually"
 
 if show_debug:
     st.subheader("Debug Information")
     try:
         st.write("Current working directory:", os.getcwd())
         st.write("Visible files in current directory:", os.listdir())
+        data_dir = os.path.join(os.getcwd(), "data")
+        if os.path.exists(data_dir):
+            st.write("Visible files in /data:", os.listdir(data_dir))
+        else:
+            st.write("/data folder not found")
+        st.write("Resolved dataset path:", loaded_path)
     except Exception as e:
         st.write("Debug listing failed:", e)
 
@@ -172,6 +188,8 @@ tab1, tab2, tab3, tab4 = st.tabs(["Data", "Training", "Evaluation", "Prediction"
 
 with tab1:
     st.subheader("Dataset Preview")
+    if loaded_path:
+        st.caption(f"Loaded from: {loaded_path}")
     st.dataframe(df.head(), use_container_width=True)
 
     with st.expander("Dataset information"):
