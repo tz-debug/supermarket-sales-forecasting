@@ -22,22 +22,11 @@ st.write(
 )
 
 # ----------------------------
-# PATH HANDLING
+# ABSOLUTE PATHS
 # ----------------------------
-def get_data_path(filename):
-    possible_paths = [
-        os.path.join("data", filename),
-        os.path.join(os.getcwd(), "data", filename),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", filename),
-    ]
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-    return None
-
-
-SALES_PATH = get_data_path("sales_data.csv")
-CAR_PATH = get_data_path("car_purchasing.csv")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SALES_PATH = os.path.join(BASE_DIR, "data", "sales_data.csv")
+CAR_PATH = os.path.join(BASE_DIR, "data", "car_purchasing.csv")
 
 
 @st.cache_data
@@ -114,14 +103,14 @@ if dataset_option == "Upload Your Own":
 # ----------------------------
 try:
     if dataset_option == "Sales Dataset":
-        if SALES_PATH is None:
-            st.error("sales_data.csv not found in the data folder.")
+        if not os.path.exists(SALES_PATH):
+            st.error(f"Built-in dataset not found: {SALES_PATH}")
             st.stop()
         df = load_csv_from_path(SALES_PATH)
 
     elif dataset_option == "Car Purchasing Dataset":
-        if CAR_PATH is None:
-            st.error("car_purchasing.csv not found in the data folder.")
+        if not os.path.exists(CAR_PATH):
+            st.error(f"Built-in dataset not found: {CAR_PATH}")
             st.stop()
         df = load_csv_from_path(CAR_PATH)
 
