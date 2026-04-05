@@ -1,4 +1,3 @@
-import os
 import json
 import streamlit as st
 import pandas as pd
@@ -17,40 +16,15 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 st.set_page_config(page_title="Regression Prediction App", layout="wide")
 st.title("Regression Prediction App")
 st.write(
-    "Use a built-in dataset from the repository or upload your own CSV. "
-    "The app trains regression models, evaluates them, and supports manual prediction."
+    "This application supports built-in datasets from the repository root or a user-uploaded CSV. "
+    "It trains regression models, evaluates performance, and allows interactive prediction."
 )
 
-# -------------------------------------------------
-# PATH HELPERS
-# -------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Root-level dataset files
+SALES_PATH = "sales_data.csv"
+CAR_PATH = "car_purchasing.csv"
 
 
-def find_file_recursive(filename: str, start_dir: str) -> str | None:
-    """Search recursively for a file starting from start_dir."""
-    for root, _, files in os.walk(start_dir):
-        for f in files:
-            if f == filename:
-                return os.path.join(root, f)
-    return None
-
-
-SALES_PATH = find_file_recursive("sales_data.csv", BASE_DIR)
-CAR_PATH = find_file_recursive("car_purchasing.csv", BASE_DIR)
-
-with st.expander("Debug file paths"):
-    st.write("Base directory:", BASE_DIR)
-    st.write("sales_data.csv path:", SALES_PATH)
-    st.write("car_purchasing.csv path:", CAR_PATH)
-    try:
-        st.write("Files in base directory:", os.listdir(BASE_DIR))
-    except Exception as e:
-        st.write("Could not list base directory:", e)
-
-# -------------------------------------------------
-# DATA LOADING
-# -------------------------------------------------
 @st.cache_data
 def load_csv_from_path(path: str) -> pd.DataFrame:
     return pd.read_csv(path)
@@ -108,9 +82,7 @@ def get_default_config(dataset_name: str, df: pd.DataFrame):
     return target, features
 
 
-# -------------------------------------------------
-# DATASET SELECTION
-# -------------------------------------------------
+# Dataset selection
 dataset_option = st.selectbox(
     "Choose dataset source",
     ["Sales Dataset", "Car Purchasing Dataset", "Upload Your Own"]
@@ -120,20 +92,12 @@ uploaded_file = None
 if dataset_option == "Upload Your Own":
     uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
-# -------------------------------------------------
-# LOAD DATA
-# -------------------------------------------------
+# Load data
 try:
     if dataset_option == "Sales Dataset":
-        if SALES_PATH is None:
-            st.error("sales_data.csv could not be found anywhere in the repo.")
-            st.stop()
         df = load_csv_from_path(SALES_PATH)
 
     elif dataset_option == "Car Purchasing Dataset":
-        if CAR_PATH is None:
-            st.error("car_purchasing.csv could not be found anywhere in the repo.")
-            st.stop()
         df = load_csv_from_path(CAR_PATH)
 
     else:
@@ -152,9 +116,7 @@ if df.empty:
 
 default_target, default_features = get_default_config(dataset_option, df)
 
-# -------------------------------------------------
-# PREVIEW
-# -------------------------------------------------
+# Preview
 st.subheader("Dataset Preview")
 st.dataframe(df.head(), use_container_width=True)
 
@@ -164,9 +126,7 @@ with st.expander("Dataset information"):
 
 columns = df.columns.tolist()
 
-# -------------------------------------------------
-# COLUMN SELECTION
-# -------------------------------------------------
+# Column selection
 st.subheader("Column Selection")
 
 col1, col2 = st.columns(2)
@@ -194,9 +154,7 @@ if not feature_cols:
     st.warning("Please select at least one feature column.")
     st.stop()
 
-# -------------------------------------------------
-# MODEL SETTINGS
-# -------------------------------------------------
+# Model settings
 st.sidebar.header("Model Settings")
 model_name = st.sidebar.selectbox(
     "Select Model",
@@ -205,9 +163,7 @@ model_name = st.sidebar.selectbox(
 test_size = st.sidebar.slider("Test Size", 0.1, 0.4, 0.2, 0.05)
 random_state = st.sidebar.number_input("Random State", min_value=0, max_value=9999, value=42)
 
-# -------------------------------------------------
-# DATA PREP
-# -------------------------------------------------
+# Data prep
 X = df[feature_cols].copy()
 y = pd.to_numeric(df[target_col], errors="coerce")
 
@@ -232,9 +188,7 @@ if len(X) < 10:
     st.error("Not enough valid rows after cleaning. Please use a larger dataset or different columns.")
     st.stop()
 
-# -------------------------------------------------
-# PIPELINE
-# -------------------------------------------------
+# Pipeline
 preprocessor = ColumnTransformer(
     transformers=[
         (
@@ -259,9 +213,7 @@ pipeline = Pipeline(
     ]
 )
 
-# -------------------------------------------------
-# TRAIN
-# -------------------------------------------------
+# Train
 if st.button("Train Model"):
     X_train, X_test, y_train, y_test = train_test_split(
         X,
@@ -288,12 +240,9 @@ if st.button("Train Model"):
     st.session_state["y_test"] = y_test
     st.session_state["y_pred"] = y_pred
     st.session_state["results_df"] = results_df
-    st.session_state["model_name"] = model_name
     st.session_state["reference_X"] = X
 
-# -------------------------------------------------
-# RESULTS
-# -------------------------------------------------
+# Results
 if "pipeline" in st.session_state:
     st.subheader("Model Performance")
 
